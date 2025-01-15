@@ -1,8 +1,11 @@
+import logging
 from typing import List, Optional
 
 from pydantic import BaseModel, HttpUrl
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+
+logger = logging.getLogger(__name__)
 
 
 class SearchResult(BaseModel):
@@ -130,8 +133,26 @@ class SpotifyClient:
             track_uris: List of Spotify track URIs to add
             description: Optional playlist description
         """
-        playlist_id = self.get_or_create_playlist(playlist_name, description)
 
-        for i in range(0, len(track_uris), 100):
-            batch = track_uris[i : i + 100]
-            self.spotify.playlist_add_items(playlist_id, batch)
+        def is_valid_spotify_uri(uri: str) -> bool:
+            return isinstance(uri, str) and uri.startswith("spotify:track:")
+
+        valid_uris = [uri for uri in track_uris if is_valid_spotify_uri(uri)]
+        invalid_uris = [uri for uri in track_uris if not is_valid_spotify_uri(uri)]
+
+        if invalid_uris:
+            logger.warning(f"Found {len(invalid_uris)} invalid URIs: {invalid_uris}")
+
+        if not valid_uris:
+            logger.error("No valid URIs to add to playlist")
+            return
+
+        playlist_id = self.get_or_create_playlist(playlist_name, description)
+        logger.info(f"Adding {len(valid_uris)} valid tracks to playlist {playlist_id}")
+
+        for i in range(0, len(valid_uris), 50):
+            batch = valid_uris[i : i + 50]
+            try:
+                self.spotify.playlist_add_items(playlist_id, batch)
+            except Exception as e:
+                logger.error(f"Failed to add batch starting at position {i}: {str(e)}")

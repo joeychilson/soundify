@@ -108,6 +108,7 @@ class Soundify:
         track_data = {
             "id": like.track.id,
             "title": like.track.title,
+            "description": like.track.description,
             "user": like.track.user.model_dump(),
             "publisher_metadata": like.track.publisher_metadata.model_dump()
             if like.track.publisher_metadata
@@ -118,48 +119,91 @@ class Soundify:
         }
 
         prompt = """
-Given a SoundCloud track's metadata, generate the most effective Spotify search query by following these priorities:
+Given a SoundCloud track's metadata, generate the most effective Spotify search query.
+IMPORTANT: Only use "artist:" and "track:" in queries.
 
-1. ISRC Code (Highest Priority):
-- If publisher_metadata.isrc exists, use format: isrc:<code>
+Track Analysis Criteria:
 
-2. Publisher Metadata:
-- If artist and album_title/release_title exist, use: artist:"<artist>" album:"<title>"
-- If artist and track title exist, use: artist:"<artist>" track:"<title>"
+1. Check Title for Artist and Title:
+- "Artist - Title" → artist:"Artist" track:"Title"
+- "Artist - Title (Remix)" → artist:"Artist" track:"Title (Remix)"
+- "Artist Title" → artist:"Artist" track:"Title"
 
-3. Track Title Analysis:
-- Parse common patterns like "Artist - Title", "Title feat. Artist", etc.
-- For remixes, include both original artist and remix artist using format: artist:OriginalArtist track:TrackName artist:RemixArtist
-- Remove common noise words (feat., ft., etc.)
+Remove these suffixes from the track title:
+- "(Original Mix)"
+- "(Extended Mix)"
+- "(Radio Edit)"
+- "(Club Mix)"
+- "(VIP Mix)"
+- "(Dub Mix)"
+- "(Edit)"
+- "(Extended)"
+- "(Original Version)"
+- "(Club Version)"
+- "(Radio Version)"
 
-4. User/Uploader Analysis:
-- If uploader appears to be artist (not a label), include in search
-- Check description for artist credits
+Remove any featuring/featured artists from the track title:
+- "Title ft. Featured" → "Title"
+- "Title feat. Featured" → "Title"
+- "Title (ft. Featured)" → "Title"
+- "Title (feat. Featured)" → "Title"
+
+2. Check Description for Artist and Title: Look for patterns like the following in the description:
+- "Artist released"
+- "Artist will release"
+- "by Artist"
+- "produced by Artist"
+- "Artist:"
+- "from Artist"
+- "Music by Artist"
+- "Track by Artist"
+
+3. Fallback Artist Criteria:
+If artist still cannot be determined, use these in order:
+a) publisher_metadata.artist if available
+b) track.user.username if available 
+
+4. Fallback Track Title Criteria:
+If track title cannot be determined from parsed title, use these in order:
+a) publisher_metadata.release_title if available
+b) Original track title with cleanup
+
+Title Cleanup Rules:
+Remove from start:
+- "Premiere:"
+- "Premier:"
+- "Free Download:"
+- "#TBT"
+
+Remove from end:
+- "[Label Name]"
+- "(OUT NOW)"
+- "[Free Download]"
 
 Return a JSON object with a single "query" field containing the generated search query.
 
-Example responses:
+Examples:
 
-For a track with ISRC:
+Artist from title:
 {
-    "query": "isrc:GBEWA1905080"
+    "query": "artist:\"Lane 8\" track:\"Brightest Lights\""
 }
 
-For a track with clear artist-title:
+Artist from description:
 {
-    "query": "artist:\"Lane 8\" track:\"The Rope\""
+    "query": "artist:\"Ben Böhmer\" track:\"Breathing\""
 }
 
-For a track with remix info:
+With remix kept:
 {
-    "query": "artist:\"Tycho\" track:\"Easy\" artist:\"Mild Minds\""
+    "query": "artist:\"Above & Beyond\" track:\"Sun In Your Eyes (Spencer Brown Remix)\""
 }
 
-For a track with featured artist:
+Using publisher metadata artist:
 {
-    "query": "artist:\"Disclosure\" track:\"You & Me\" artist:\"Flume\""
+    "query": "artist:\"Lane 8\" track:\"Brightest Lights\""
 }
-    """
+"""
 
         completion = self.openai.chat.completions.create(
             model="gpt-4o-mini",
@@ -238,7 +282,18 @@ For no match:
     async def find_spotify_match(self, like: Like) -> Optional[str]:
         """Find the best matching Spotify track URI for a SoundCloud like."""
         try:
+            if like.track.publisher_metadata and like.track.publisher_metadata.isrc:
+                isrc_results = self.spotify.search_tracks(
+                    query=f"isrc:{like.track.publisher_metadata.isrc}", limit=1
+                )
+                if isrc_results and isrc_results[0].uri:
+                    return isrc_results[0].uri
+
             llm_query = await self._generate_search_query(like)
+
+            logger.info(
+                f"Finding Spotify match for {like.track.title} with query: {llm_query}"
+            )
 
             primary_results = self.spotify.search_tracks(
                 query=llm_query, limit=self.config.search_candidates

@@ -23,13 +23,14 @@ class PublisherMetadata(BaseModel):
 
 class Track(BaseModel):
     id: int
-    artwork_url: Optional[str]
+    artwork_url: Optional[str] = None
     title: str
+    description: Optional[str] = None
     duration: Optional[int] = Field(..., alias="full_duration")
     user: User
-    label_name: Optional[str]
-    publisher_metadata: Optional[PublisherMetadata]
-    release_date: Optional[str]
+    label_name: Optional[str] = None
+    publisher_metadata: Optional[PublisherMetadata] = None
+    release_date: Optional[str] = None
 
 
 class Like(BaseModel):
@@ -38,8 +39,8 @@ class Like(BaseModel):
 
 class LikesResponse(BaseModel):
     collection: List[Like]
-    next_href: Optional[str]
-    query_urn: Optional[str]
+    next_href: Optional[str] = None
+    query_urn: Optional[str] = None
 
 
 class SoundCloudClient:
