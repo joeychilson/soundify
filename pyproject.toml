@@ -1,0 +1,16 @@
+[project]
+name = "soundify"
+version = "0.1.0"
+description = "A tool to convert soundcloud likes into a spotify playlist"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "openai>=1.59.7",
+    "pydantic-settings>=2.7.1",
+    "pydantic>=2.10.5",
+    "pyyaml>=6.0.2",
+    "rich>=13.9.4",
+    "spotipy>=2.25.0",
+    "typer>=0.15.1",
+]
